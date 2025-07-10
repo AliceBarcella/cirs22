@@ -15,6 +15,10 @@ import ij.gui.GenericDialog;
 import ij.plugin.filter.PlugInFilter;
 import ij.process.ImageProcessor;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.StringReader;
+
 /**
  * A template for processing each pixel of either
  * GRAY8, GRAY16, GRAY32 or COLOR_RGB images.
@@ -32,6 +36,62 @@ public class Process_Pixels implements PlugInFilter {
 	public double value;
 	public String name;
 
+	/**
+	 * Metodo per estrarre il valore di un tag DICOM dato il suo codice (es. "0010,0010").
+	 * Presuppone che l'header sia formattato con il codice del tag seguito dal valore.
+	 * Es: "(0010,0010) Patient's Name: JOHN^DOE"
+	 *
+	 * @param dicomHeader La stringa completa dell'header DICOM.
+	 * @param tagCode Il codice del tag DICOM da cercare (es. "0010,0010").
+	 * @return Il valore del tag, o null se non trovato.
+	 */
+	private String getDicomTagValue(String dicomHeader, String tagCode) {
+		try (BufferedReader reader = new BufferedReader(new StringReader(dicomHeader))) {
+			String line;
+			String searchPattern =  tagCode; // Es: "(0010,0010)"
+
+			while ((line = reader.readLine()) != null) {
+				if (line.contains(searchPattern)) {
+					// Tenta di trovare la parte del valore dopo i due punti e lo spazio
+					int colonIndex = line.indexOf(':');
+					if (colonIndex != -1) {
+						// Salta lo spazio dopo i due punti
+						return line.substring(colonIndex + 2).trim();
+					}
+				}
+			}
+		} catch (IOException e) {
+			IJ.error("Errore durante la lettura dell'header DICOM: " + e.getMessage());
+		}
+		return null;
+	}
+
+	/**
+	 * Metodo per estrarre il valore di un tag DICOM data la sua descrizione testuale.
+	 * Questo metodo è meno robusto di {@code getDicomTagValue} perché dipende dalla
+	 * formattazione esatta della descrizione nel testo dell'header.
+	 *
+	 * @param dicomHeader La stringa completa dell'header DICOM.
+	 * @param tagDescription La descrizione del tag da cercare (es. "Patient's Name").
+	 * @return Il valore del tag, o null se non trovato.
+	 */
+	private String getDicomTagValueByDescription(String dicomHeader, String tagDescription) {
+		try (BufferedReader reader = new BufferedReader(new StringReader(dicomHeader))) {
+			String line;
+			while ((line = reader.readLine()) != null) {
+				// Cerca la descrizione seguita da ": "
+				if (line.contains(tagDescription + ": ")) {
+					int colonIndex = line.indexOf(':');
+					if (colonIndex != -1) {
+						return line.substring(colonIndex + 2).trim();
+					}
+				}
+			}
+		} catch (IOException e) {
+			IJ.error("Errore durante la lettura dell'header DICOM: " + e.getMessage());
+		}
+		return null;
+	}
 	@Override
 	public int setup(String arg, ImagePlus imp) {
 		if (arg.equals("about")) {
@@ -43,11 +103,16 @@ public class Process_Pixels implements PlugInFilter {
 		return DOES_8G | DOES_16 | DOES_32 | DOES_RGB;
 	}
 
+
 	@Override
 	public void run(ImageProcessor ip) {
 		// get width and height
 		width = ip.getWidth();
 		height = ip.getHeight();
+
+		String header = image.getInfoProperty();
+		String tag = getDicomTagValue(header, "0008,0020");
+
 
 		if (showDialog()) {
 			process(ip);
